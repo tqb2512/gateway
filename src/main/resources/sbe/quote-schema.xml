@@ -20,8 +20,23 @@
             <validValue name="TRUE">1</validValue>
         </enum>
 
-        <composite name="varStringEncoding">
-            <type name="length" primitiveType="uint32" maxValue="1048576"/>
+        <composite name="varStringEncoding64">
+            <type name="length" primitiveType="uint32" maxValue="64"/>
+            <type name="varData" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
+        </composite>
+
+        <composite name="varStringEncoding16">
+            <type name="length" primitiveType="uint32" maxValue="16"/>
+            <type name="varData" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
+        </composite>
+
+        <composite name="varStringEncoding8">
+            <type name="length" primitiveType="uint32" maxValue="8"/>
+            <type name="varData" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
+        </composite>
+
+        <composite name="varStringEncoding3">
+            <type name="length" primitiveType="uint32" maxValue="3"/>
             <type name="varData" primitiveType="uint8" length="0" characterEncoding="UTF-8"/>
         </composite>
     </types>
@@ -35,13 +50,13 @@
         <field name="validTill" id="5" type="int64"/>
 
         <!-- Variable-length fields -->
-        <data name="rateType" id="6" type="varStringEncoding"/>
-        <data name="rateQuoteID" id="7" type="varStringEncoding"/>
-        <data name="rateCategoryID" id="8" type="varStringEncoding"/>
-        <data name="baseCurrency" id="9" type="varStringEncoding"/>
-        <data name="quoteCurrency" id="10" type="varStringEncoding"/>
-        <data name="tenor" id="11" type="varStringEncoding"/>
-        <data name="status" id="12" type="varStringEncoding"/>
+        <data name="rateType" id="6" type="varStringEncoding16"/>
+        <data name="rateQuoteID" id="7" type="varStringEncoding64"/>
+        <data name="rateCategoryID" id="8" type="varStringEncoding16"/>
+        <data name="baseCurrency" id="9" type="varStringEncoding3"/>
+        <data name="quoteCurrency" id="10" type="varStringEncoding3"/>
+        <data name="tenor" id="11" type="varStringEncoding64"/>
+        <data name="status" id="12" type="varStringEncoding64"/>
     </sbe:message>
 
 </sbe:messageSchema>
