@@ -13,7 +13,7 @@ import java.nio.ByteBuffer;
 @Service
 public class ProcessMarketEncode implements ProcessMarketEncodeService<byte[]> {
 
-    private static final int BUFFER_SIZE = 223;
+    private static final int BUFFER_SIZE = 315;
 
     private final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
     private final QuoteEncoder quoteEncoder = new QuoteEncoder();
