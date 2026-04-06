@@ -1,4 +1,4 @@
-package com.etrade.gateway.application.disruptor;
+package com.etrade.gateway.infrastructure.disruptor;
 
 import com.etrade.gateway.application.service.KafkaBatchAccumulator;
 import com.etrade.gateway.application.service.ProcessMarketEncode;

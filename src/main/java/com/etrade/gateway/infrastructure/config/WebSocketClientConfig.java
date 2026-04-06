@@ -1,4 +1,4 @@
-package com.etrade.gateway.application.config;
+package com.etrade.gateway.infrastructure.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;

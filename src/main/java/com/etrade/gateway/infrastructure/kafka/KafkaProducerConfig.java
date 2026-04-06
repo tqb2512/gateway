@@ -1,4 +1,4 @@
-package com.etrade.gateway.application.config;
+package com.etrade.gateway.infrastructure.kafka;
 
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.ByteArraySerializer;

@@ -1,12 +1,11 @@
-package com.etrade.gateway.application.service;
+package com.etrade.gateway.infrastructure.websocket;
 
-import com.etrade.gateway.application.disruptor.MarketDataEvent;
+import com.etrade.gateway.domain.service.PublishService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lmax.disruptor.RingBuffer;
-import com.lmax.disruptor.dsl.Disruptor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -16,17 +15,23 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 /**
  * WebSocket handler that acts as a thin Disruptor producer.
  * Receives market data JSON from the WebSocket and publishes it
- * into the Disruptor ring buffer for downstream processing.
+ * via {@link PublishService} for downstream processing.
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class MarketDataWebSocketHandler extends TextWebSocketHandler {
 
-    private final Disruptor<MarketDataEvent> disruptor;
+    private final PublishService<Void, String> publishService;
     private final ObjectMapper objectMapper;
 
     private WebSocketConnectionManager connectionManager;
+
+    public MarketDataWebSocketHandler(
+            @Qualifier("MarketDataDisruptor") PublishService<Void, String> publishService,
+            ObjectMapper objectMapper) {
+        this.publishService = publishService;
+        this.objectMapper = objectMapper;
+    }
 
     public void setConnectionManager(WebSocketConnectionManager connectionManager) {
         this.connectionManager = connectionManager;
@@ -48,27 +53,13 @@ public class MarketDataWebSocketHandler extends TextWebSocketHandler {
             if (root.isArray()) {
                 log.debug("Received array message with {} elements", root.size());
                 for (JsonNode element : root) {
-                    publishToDisruptor(element.toString());
+                    publishService.publish("", element.toString());
                 }
             } else {
-                publishToDisruptor(payload);
+                publishService.publish("", payload);
             }
         } catch (Exception e) {
             log.error("Failed to process WebSocket message: {}", e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Publish a single raw JSON quote string into the Disruptor ring buffer.
-     */
-    private void publishToDisruptor(String quoteJson) {
-        RingBuffer<MarketDataEvent> ringBuffer = disruptor.getRingBuffer();
-        long sequence = ringBuffer.next();
-        try {
-            MarketDataEvent event = ringBuffer.get(sequence);
-            event.setRawJson(quoteJson);
-        } finally {
-            ringBuffer.publish(sequence);
         }
     }
 

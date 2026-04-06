@@ -1,6 +1,7 @@
-package com.etrade.gateway.application.disruptor;
+package com.etrade.gateway.infrastructure.disruptor;
 
 import com.etrade.gateway.domain.entity.QuoteEntity;
+import com.lmax.disruptor.EventFactory;
 
 /**
  * Mutable event object held in the Disruptor ring buffer.
@@ -43,5 +44,12 @@ public class MarketDataEvent {
         this.rawJson = null;
         this.quote = null;
         this.encoded = null;
+    }
+
+    public static class Factory implements EventFactory<MarketDataEvent> {
+        @Override
+        public MarketDataEvent newInstance() {
+            return new MarketDataEvent();
+        }
     }
 }

@@ -1,4 +1,4 @@
-package com.etrade.gateway.application.service;
+package com.etrade.gateway.infrastructure.websocket;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
