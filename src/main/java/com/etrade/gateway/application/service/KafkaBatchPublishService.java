@@ -1,5 +1,6 @@
 package com.etrade.gateway.application.service;
 
+import com.etrade.gateway.infrastructure.monitoring.ThroughputMonitor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -9,7 +10,8 @@ import java.util.List;
 
 /**
  * Publishes a batch of encoded byte[] records to Kafka.
- * Sends all records via {@link KafkaTemplate#send}, then calls {@link KafkaTemplate#flush()}
+ * Sends all records via {@link KafkaTemplate#send}, then calls
+ * {@link KafkaTemplate#flush()}
  * to push them in a single network round-trip.
  */
 @Slf4j
@@ -18,6 +20,7 @@ import java.util.List;
 public class KafkaBatchPublishService {
 
     private final KafkaTemplate<String, byte[]> kafkaTemplate;
+    private final ThroughputMonitor throughputMonitor;
 
     /**
      * Publish a batch of encoded records to the specified Kafka topic.
@@ -39,6 +42,9 @@ public class KafkaBatchPublishService {
 
         // Flush all buffered records to the broker in one go
         kafkaTemplate.flush();
+
+        throughputMonitor.add("kafka-records-out", batch.size());
+        throughputMonitor.increment("kafka-batches-out");
 
         log.info("Published batch of {} records ({} bytes) to topic [{}]",
                 batch.size(), totalBytes, topic);

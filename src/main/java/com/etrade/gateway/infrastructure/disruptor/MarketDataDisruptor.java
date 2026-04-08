@@ -1,10 +1,10 @@
 package com.etrade.gateway.infrastructure.disruptor;
 
 import com.etrade.gateway.application.service.KafkaBatchAccumulator;
-import com.etrade.gateway.application.service.KafkaBatchPublishService;
 import com.etrade.gateway.application.service.ProcessMarketEncode;
 import com.etrade.gateway.application.service.ProcessMarketParse;
 import com.etrade.gateway.domain.service.PublishService;
+import com.etrade.gateway.infrastructure.monitoring.ThroughputMonitor;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.SleepingWaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -14,17 +14,18 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-
 /**
  * Self-contained Disruptor wrapper for market data processing.
  *
- * <p>Pipeline: WebSocket → RingBuffer → Parse → Encode → BatchAccumulate → Kafka
+ * <p>Pipeline: WebSocket → RingBuffer → Parse → Encode → BatchFlushQueue → Workers → Kafka
  *
- * <p>Implements {@link PublishService} so that producers (e.g. WebSocket handler)
- * only depend on the abstract publish interface, not the LMAX Disruptor API.
+ * <p>The {@link BatchFlushQueue} owns the worker pool and the shared
+ * {@link org.jctools.queues.MpmcArrayQueue}. Its lifecycle is managed by
+ * Spring ({@code @PreDestroy}), so this class only needs to shut down the
+ * Disruptor itself.
+ *
+ * <p>Implements {@link PublishService} so that producers (e.g. the WebSocket
+ * handler) depend only on the abstract publish interface.
  */
 @Slf4j
 @Service("MarketDataDisruptor")
@@ -32,24 +33,21 @@ public class MarketDataDisruptor implements PublishService<Void, String> {
 
     private final Disruptor<MarketDataEvent> disruptor;
     private final RingBuffer<MarketDataEvent> ringBuffer;
-    private final ScheduledExecutorService flushScheduler;
+    private final ThroughputMonitor throughputMonitor;
 
     public MarketDataDisruptor(
             ProcessMarketParse parser,
             ProcessMarketEncode encoder,
-            KafkaBatchPublishService batchPublishService,
-            @Value("${disruptor.ring-buffer-size:1024}") int ringBufferSize,
-            @Value("${kafka.topic.market-quote}") String kafkaTopic,
-            @Value("${kafka.batch.max-size:64}") int maxBatchSize,
-            @Value("${kafka.batch.flush-interval-ms:50}") long flushIntervalMs) {
+            BatchFlushQueue batchFlushQueue,
+            ThroughputMonitor throughputMonitor,
+            @Value("${disruptor.ring-buffer-size:1024}") int ringBufferSize) {
 
-        // Build the batch accumulator
-        KafkaBatchAccumulator accumulator = new KafkaBatchAccumulator(batchPublishService, kafkaTopic, maxBatchSize);
+        this.throughputMonitor = throughputMonitor;
 
-        // Build the event handler
-        MarketDataEventHandler eventHandler = new MarketDataEventHandler(parser, encoder, accumulator);
+        KafkaBatchAccumulator accumulator = new KafkaBatchAccumulator(batchFlushQueue);
 
-        // Build & start the disruptor
+        MarketDataEventHandler eventHandler = new MarketDataEventHandler(parser, encoder, accumulator, throughputMonitor);
+
         disruptor = new Disruptor<>(
                 new MarketDataEvent.Factory(),
                 ringBufferSize,
@@ -79,23 +77,7 @@ public class MarketDataDisruptor implements PublishService<Void, String> {
         disruptor.start();
         ringBuffer = disruptor.getRingBuffer();
 
-        // Scheduled flush for time-based batching
-        flushScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "batch-flush-scheduler");
-            t.setDaemon(true);
-            return t;
-        });
-
-        flushScheduler.scheduleAtFixedRate(() -> {
-            try {
-                accumulator.flush();
-            } catch (Exception e) {
-                log.error("Scheduled batch flush failed: {}", e.getMessage(), e);
-            }
-        }, flushIntervalMs, flushIntervalMs, TimeUnit.MILLISECONDS);
-
-        log.info("MarketDataDisruptor started: ringBufferSize={}, batchSize={}, flushIntervalMs={}",
-                ringBufferSize, maxBatchSize, flushIntervalMs);
+        log.info("MarketDataDisruptor started: ringBufferSize={}", ringBufferSize);
     }
 
     @Override
@@ -107,29 +89,16 @@ public class MarketDataDisruptor implements PublishService<Void, String> {
         } finally {
             ringBuffer.publish(sequence);
         }
+        throughputMonitor.increment("disruptor-publish");
         return null;
     }
 
     @PreDestroy
     public void shutdown() {
         log.info("Shutting down MarketDataDisruptor...");
-
-        if (flushScheduler != null) {
-            flushScheduler.shutdown();
-            try {
-                if (!flushScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                    flushScheduler.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                flushScheduler.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        }
-
         if (disruptor != null) {
             disruptor.shutdown();
         }
-
         log.info("MarketDataDisruptor shut down.");
     }
 }

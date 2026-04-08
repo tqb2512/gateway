@@ -1,9 +1,9 @@
 package com.etrade.gateway.infrastructure.websocket;
 
 import com.etrade.gateway.domain.service.PublishService;
+import com.etrade.gateway.infrastructure.monitoring.ThroughputMonitor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
@@ -23,14 +23,17 @@ public class MarketDataWebSocketHandler extends TextWebSocketHandler {
 
     private final PublishService<Void, String> publishService;
     private final ObjectMapper objectMapper;
+    private final ThroughputMonitor throughputMonitor;
 
     private WebSocketConnectionManager connectionManager;
 
     public MarketDataWebSocketHandler(
             @Qualifier("MarketDataDisruptor") PublishService<Void, String> publishService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ThroughputMonitor throughputMonitor) {
         this.publishService = publishService;
         this.objectMapper = objectMapper;
+        this.throughputMonitor = throughputMonitor;
     }
 
     public void setConnectionManager(WebSocketConnectionManager connectionManager) {
@@ -47,6 +50,8 @@ public class MarketDataWebSocketHandler extends TextWebSocketHandler {
         String payload = message.getPayload();
         log.debug("Received WebSocket message: {} bytes", payload.length());
 
+        throughputMonitor.increment("ws-messages-in");
+
         try {
             JsonNode root = objectMapper.readTree(payload);
 
@@ -55,8 +60,10 @@ public class MarketDataWebSocketHandler extends TextWebSocketHandler {
                 for (JsonNode element : root) {
                     publishService.publish("", element.toString());
                 }
+                throughputMonitor.add("ws-quotes-in", root.size());
             } else {
                 publishService.publish("", payload);
+                throughputMonitor.increment("ws-quotes-in");
             }
         } catch (Exception e) {
             log.error("Failed to process WebSocket message: {}", e.getMessage(), e);

@@ -4,6 +4,7 @@ import com.etrade.gateway.application.service.KafkaBatchAccumulator;
 import com.etrade.gateway.application.service.ProcessMarketEncode;
 import com.etrade.gateway.application.service.ProcessMarketParse;
 import com.etrade.gateway.domain.entity.QuoteEntity;
+import com.etrade.gateway.infrastructure.monitoring.ThroughputMonitor;
 import com.lmax.disruptor.EventHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,7 +15,8 @@ import lombok.extern.slf4j.Slf4j;
  * 2. Encode QuoteEntity → byte[]
  * 3. Add encoded bytes to the batch accumulator
  *
- * Uses the {@code endOfBatch} flag to trigger a flush at the Disruptor batch boundary.
+ * Uses the {@code endOfBatch} flag to trigger a flush at the Disruptor batch
+ * boundary.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -23,6 +25,7 @@ public class MarketDataEventHandler implements EventHandler<MarketDataEvent> {
     private final ProcessMarketParse parser;
     private final ProcessMarketEncode encoder;
     private final KafkaBatchAccumulator batchAccumulator;
+    private final ThroughputMonitor throughputMonitor;
 
     @Override
     public void onEvent(MarketDataEvent event, long sequence, boolean endOfBatch) {
@@ -42,10 +45,7 @@ public class MarketDataEventHandler implements EventHandler<MarketDataEvent> {
             // Step 3: Add to batch
             batchAccumulator.add(encoded);
 
-            // Flush if this is the end of a Disruptor batch
-            if (endOfBatch) {
-                batchAccumulator.flush();
-            }
+            throughputMonitor.increment("disruptor-processed");
         } catch (Exception e) {
             log.error("Failed to process market data event seq={}: {}", sequence, e.getMessage(), e);
         } finally {
