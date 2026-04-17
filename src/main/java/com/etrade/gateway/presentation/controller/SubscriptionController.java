@@ -36,6 +36,22 @@ public class SubscriptionController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/unsubscribe")
+    public ResponseEntity<SubscribeResponse> unsubscribe(@RequestBody SubscribeRequest request) {
+        log.info("Received unsubscribe request with {} currency pairs", request.getCurrencyPairList().size());
+
+        List<CurrencyPairSubscription.CurrencyPair> pairs = request.getCurrencyPairList().stream()
+                .map(item -> CurrencyPairSubscription.CurrencyPair.builder()
+                        .buyCurrency(item.getBuyCurrency())
+                        .sellCurrency(item.getSellCurrency())
+                        .tenor(item.getTenor())
+                        .build())
+                .collect(Collectors.toList());
+
+        SubscribeResponse response = subscriptionManagerService.unsubscribe(pairs);
+        return ResponseEntity.ok(response);
+    }
+
     @GetMapping("/pairs")
     public ResponseEntity<CurrencyPairSubscription> getSubscribedPairs() {
         return ResponseEntity.ok(subscriptionManagerService.getSubscription());

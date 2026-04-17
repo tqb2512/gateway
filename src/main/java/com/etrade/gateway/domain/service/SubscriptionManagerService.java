@@ -11,5 +11,7 @@ public interface SubscriptionManagerService {
 
     SubscribeResponse subscribe(List<CurrencyPairSubscription.CurrencyPair> pairs);
 
+    SubscribeResponse unsubscribe(List<CurrencyPairSubscription.CurrencyPair> pairs);
+
     CurrencyPairSubscription getSubscription();
 }

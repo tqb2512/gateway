@@ -27,6 +27,9 @@ public class SubscriptionManager implements SubscriptionManagerService {
     @Value("${scb.subscription.url}")
     private String subscriptionUrl;
 
+    @Value("${scb.unsubscription.url}")
+    private String unsubscriptionUrl;
+
     @Value("${scb.client-id}")
     private String clientId;
 
@@ -68,13 +71,13 @@ public class SubscriptionManager implements SubscriptionManagerService {
                     .collect(Collectors.toList());
 
             Map<String, Object> requestBody = Map.of("currencyPairList", pairListBody);
-            String body = objectMapper.writeValueAsString(requestBody);
-            log.info("Sending subscribe request to {}: {}", url, body);
+            log.info("Sending subscribe request to {}: {}", url, objectMapper.writeValueAsString(requestBody));
 
             SubscribeResponse response = restClient.post()
                     .uri(url)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(requestBody)
                     .retrieve()
                     .body(SubscribeResponse.class);
 
@@ -109,6 +112,57 @@ public class SubscriptionManager implements SubscriptionManagerService {
     }
 
     @Override
+    public SubscribeResponse unsubscribe(List<CurrencyPairSubscription.CurrencyPair> pairs) {
+        String url = unsubscriptionUrl
+                .replace("{clientId}", clientId)
+                .replace("{rateCatId}", rateCategoryId);
+
+        try {
+            List<Map<String, String>> pairListBody = pairs.stream()
+                    .map(p -> Map.of(
+                            "buyCurrency", p.getBuyCurrency(),
+                            "sellCurrency", p.getSellCurrency(),
+                            "tenor", p.getTenor()
+                    ))
+                    .collect(Collectors.toList());
+
+            Map<String, Object> requestBody = Map.of("currencyPairList", pairListBody);
+            log.info("Sending unsubscribe request to {}: {}", url, objectMapper.writeValueAsString(requestBody));
+
+            SubscribeResponse response = restClient.post()
+                    .uri(url)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(requestBody)
+                    .retrieve()
+                    .body(SubscribeResponse.class);
+
+            log.info("Unsubscribe response: status={}", response != null ? response.getStatus() : "null");
+
+            if (response != null && ("SUCCESS".equals(response.getStatus())
+                    || "PARTIAL_SUCCESS".equals(response.getStatus()))) {
+
+                for (CurrencyPairSubscription.CurrencyPair pair : pairs) {
+                    boolean removed = subscription.getPairList().removeIf(existing ->
+                            existing.getBuyCurrency().equals(pair.getBuyCurrency())
+                                    && existing.getSellCurrency().equals(pair.getSellCurrency())
+                                    && existing.getTenor().equals(pair.getTenor()));
+
+                    if (removed) {
+                        log.info("Unsubscribed currency pair removed from pairList: {}/{} tenor={}",
+                                pair.getBuyCurrency(), pair.getSellCurrency(), pair.getTenor());
+                    }
+                }
+            }
+
+            return response;
+        } catch (Exception e) {
+            log.error("Failed to send unsubscribe request: {}", e.getMessage(), e);
+            throw new RuntimeException("Unsubscription request failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public CurrencyPairSubscription getSubscription() {
         return subscription;
     }
@@ -127,13 +181,13 @@ public class SubscriptionManager implements SubscriptionManagerService {
                     ))
             );
 
-            String body = objectMapper.writeValueAsString(requestBody);
-            log.info("Sending subscription request to {}: {}", url, body);
+            log.info("Sending subscription request to {}: {}", url, objectMapper.writeValueAsString(requestBody));
 
             String response = restClient.post()
                     .uri(url)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(requestBody)
                     .retrieve()
                     .body(String.class);
 

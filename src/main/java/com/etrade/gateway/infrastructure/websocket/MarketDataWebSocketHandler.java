@@ -4,7 +4,9 @@ import com.etrade.gateway.domain.service.PublishService;
 import com.etrade.gateway.infrastructure.monitoring.ThroughputMonitor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -25,6 +27,7 @@ public class MarketDataWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final ThroughputMonitor throughputMonitor;
 
+    @Setter
     private WebSocketConnectionManager connectionManager;
 
     public MarketDataWebSocketHandler(
@@ -36,17 +39,13 @@ public class MarketDataWebSocketHandler extends TextWebSocketHandler {
         this.throughputMonitor = throughputMonitor;
     }
 
-    public void setConnectionManager(WebSocketConnectionManager connectionManager) {
-        this.connectionManager = connectionManager;
-    }
-
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         log.info("WebSocket connected: sessionId={}, uri={}", session.getId(), session.getUri());
     }
 
     @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+    protected void handleTextMessage(@NonNull WebSocketSession session, TextMessage message) {
         String payload = message.getPayload();
         log.debug("Received WebSocket message: {} bytes", payload.length());
 
@@ -71,7 +70,7 @@ public class MarketDataWebSocketHandler extends TextWebSocketHandler {
     }
 
     @Override
-    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+    public void afterConnectionClosed(WebSocketSession session, @NonNull CloseStatus status) {
         log.warn("WebSocket disconnected: sessionId={}, status={}", session.getId(), status);
         if (connectionManager != null) {
             connectionManager.scheduleReconnect();
@@ -79,7 +78,7 @@ public class MarketDataWebSocketHandler extends TextWebSocketHandler {
     }
 
     @Override
-    public void handleTransportError(WebSocketSession session, Throwable exception) {
+    public void handleTransportError(@NonNull WebSocketSession session, @NonNull Throwable exception) {
         log.error("WebSocket transport error: {}", exception.getMessage(), exception);
         if (connectionManager != null) {
             connectionManager.scheduleReconnect();
