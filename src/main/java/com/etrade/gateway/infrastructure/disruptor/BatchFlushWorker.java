@@ -3,10 +3,12 @@ package com.etrade.gateway.infrastructure.disruptor;
 import com.etrade.gateway.application.service.KafkaBatchPublishService;
 import com.etrade.gateway.infrastructure.monitoring.ThroughputMonitor;
 import lombok.extern.slf4j.Slf4j;
-import org.jctools.queues.MpmcArrayQueue;
+import org.jctools.queues.MessagePassingQueue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * Dedicated worker thread that polls encoded {@code byte[]} records from a
@@ -16,13 +18,16 @@ import java.util.List;
  * flushes. If the queue runs dry before the batch is full, a time-based flush
  * fires after {@code maxWaitMillis} to bound end-to-end latency.
  *
- * <p>Busy-spin is dampened with {@link Thread#yield()} after a configurable
- * number of empty polls, keeping CPU usage acceptable during quiet periods.
+ * <p>Under load the worker runs a tight poll loop; during quiet periods it
+ * parks briefly to keep CPU usage low without sacrificing wake-up latency.
  */
 @Slf4j
 public class BatchFlushWorker implements Runnable {
 
-    private final MpmcArrayQueue<byte[]> queue;
+    private static final long PARK_NANOS = TimeUnit.MICROSECONDS.toNanos(50);
+    private static final int SPIN_TRIES = 128;
+
+    private final MessagePassingQueue<byte[]> queue;
     private final KafkaBatchPublishService batchPublishService;
     private final String topic;
     private final ThroughputMonitor throughputMonitor;
@@ -31,7 +36,7 @@ public class BatchFlushWorker implements Runnable {
 
     private volatile boolean running = true;
 
-    public BatchFlushWorker(MpmcArrayQueue<byte[]> queue,
+    public BatchFlushWorker(MessagePassingQueue<byte[]> queue,
                             KafkaBatchPublishService batchPublishService,
                             String topic,
                             ThroughputMonitor throughputMonitor,
@@ -53,50 +58,48 @@ public class BatchFlushWorker implements Runnable {
     public void run() {
         log.info("BatchFlushWorker started – draining queue to topic [{}]", topic);
 
-        List<byte[]> batch = new ArrayList<>(batchSize);
-        long firstAddTime = 0;
+        final List<byte[]> batch = new ArrayList<>(batchSize);
+        long firstAddTime = 0L;
         int emptyPollCount = 0;
 
         while (running || !queue.isEmpty() || !batch.isEmpty()) {
-
             byte[] item = queue.poll();
-            long now = System.currentTimeMillis();
 
             if (item != null) {
                 emptyPollCount = 0;
-
                 if (batch.isEmpty()) {
-                    firstAddTime = now;
+                    firstAddTime = System.currentTimeMillis();
                 }
-
                 batch.add(item);
-
                 if (batch.size() >= batchSize) {
                     flushBatch(batch);
                     batch.clear();
-                    firstAddTime = 0;
+                    firstAddTime = 0L;
                 }
-
                 continue;
             }
 
-            // Queue empty → check time-based flush
-            if (!batch.isEmpty() && maxWaitMillis > 0 && now - firstAddTime >= maxWaitMillis) {
+            // Queue empty → honour time-based flush bound
+            if (!batch.isEmpty() && maxWaitMillis > 0
+                    && System.currentTimeMillis() - firstAddTime >= maxWaitMillis) {
                 flushBatch(batch);
                 batch.clear();
-                firstAddTime = 0;
+                firstAddTime = 0L;
                 continue;
             }
 
-            // Dampen busy-spin during quiet periods
+            // Staircase back-off: spin, yield, then park — keeps wake-up
+            // latency in the microsecond range without burning a core.
             emptyPollCount++;
-            if (emptyPollCount > 50) {
-                emptyPollCount = 0;
+            if (emptyPollCount < SPIN_TRIES) {
+                Thread.onSpinWait();
+            } else if (emptyPollCount < SPIN_TRIES * 2) {
                 Thread.yield();
+            } else {
+                LockSupport.parkNanos(PARK_NANOS);
             }
         }
 
-        // Flush whatever remains before the thread exits
         if (!batch.isEmpty()) {
             flushBatch(batch);
         }

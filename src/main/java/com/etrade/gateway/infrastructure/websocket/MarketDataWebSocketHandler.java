@@ -23,7 +23,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 @Component
 public class MarketDataWebSocketHandler extends TextWebSocketHandler {
 
-    private final PublishService<Void, String> publishService;
+    private final PublishService<Void, JsonNode> publishService;
     private final ObjectMapper objectMapper;
     private final ThroughputMonitor throughputMonitor;
 
@@ -31,7 +31,7 @@ public class MarketDataWebSocketHandler extends TextWebSocketHandler {
     private WebSocketConnectionManager connectionManager;
 
     public MarketDataWebSocketHandler(
-            @Qualifier("MarketDataDisruptor") PublishService<Void, String> publishService,
+            @Qualifier("MarketDataDisruptor") PublishService<Void, JsonNode> publishService,
             ObjectMapper objectMapper,
             ThroughputMonitor throughputMonitor) {
         this.publishService = publishService;
@@ -47,21 +47,21 @@ public class MarketDataWebSocketHandler extends TextWebSocketHandler {
     @Override
     protected void handleTextMessage(@NonNull WebSocketSession session, TextMessage message) {
         String payload = message.getPayload();
-        log.debug("Received WebSocket message: {} bytes", payload.length());
-
         throughputMonitor.increment("ws-messages-in");
 
         try {
+            // Parse once on the WS thread; forward the JsonNode down the
+            // Disruptor so the event handler does not re-parse the JSON.
             JsonNode root = objectMapper.readTree(payload);
 
             if (root.isArray()) {
-                log.debug("Received array message with {} elements", root.size());
-                for (JsonNode element : root) {
-                    publishService.publish("", element.toString());
+                int size = root.size();
+                for (int i = 0; i < size; i++) {
+                    publishService.publish("", root.get(i));
                 }
-                throughputMonitor.add("ws-quotes-in", root.size());
+                throughputMonitor.add("ws-quotes-in", size);
             } else {
-                publishService.publish("", payload);
+                publishService.publish("", root);
                 throughputMonitor.increment("ws-quotes-in");
             }
         } catch (Exception e) {

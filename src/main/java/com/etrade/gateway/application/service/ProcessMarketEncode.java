@@ -17,15 +17,12 @@ public class ProcessMarketEncode implements ProcessMarketEncodeService<byte[]> {
 
     private final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
     private final QuoteEncoder quoteEncoder = new QuoteEncoder();
+    private final UnsafeBuffer scratch = new UnsafeBuffer(ByteBuffer.allocate(BUFFER_SIZE));
 
     @Override
     public byte[] process(QuoteEntity data) {
-        final ByteBuffer byteBuffer = ByteBuffer.allocate(BUFFER_SIZE);
-        final UnsafeBuffer buffer = new UnsafeBuffer(byteBuffer);
+        quoteEncoder.wrapAndApplyHeader(scratch, 0, headerEncoder);
 
-        quoteEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder);
-
-        // Fixed-length fields
         quoteEncoder
                 .bid(data.getBid())
                 .ask(data.getAsk())
@@ -45,8 +42,7 @@ public class ProcessMarketEncode implements ProcessMarketEncodeService<byte[]> {
 
         final int encodedLength = MessageHeaderEncoder.ENCODED_LENGTH + quoteEncoder.encodedLength();
         final byte[] encoded = new byte[encodedLength];
-        buffer.getBytes(0, encoded);
-
+        scratch.getBytes(0, encoded);
         return encoded;
     }
 

@@ -5,8 +5,9 @@ import com.etrade.gateway.application.service.ProcessMarketEncode;
 import com.etrade.gateway.application.service.ProcessMarketParse;
 import com.etrade.gateway.domain.service.PublishService;
 import com.etrade.gateway.infrastructure.monitoring.ThroughputMonitor;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.lmax.disruptor.RingBuffer;
-import com.lmax.disruptor.SleepingWaitStrategy;
+import com.lmax.disruptor.YieldingWaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import jakarta.annotation.PreDestroy;
@@ -29,7 +30,7 @@ import org.springframework.stereotype.Service;
  */
 @Slf4j
 @Service("MarketDataDisruptor")
-public class MarketDataDisruptor implements PublishService<Void, String> {
+public class MarketDataDisruptor implements PublishService<Void, JsonNode> {
 
     private final Disruptor<MarketDataEvent> disruptor;
     private final RingBuffer<MarketDataEvent> ringBuffer;
@@ -40,7 +41,7 @@ public class MarketDataDisruptor implements PublishService<Void, String> {
             ProcessMarketEncode encoder,
             BatchFlushQueue batchFlushQueue,
             ThroughputMonitor throughputMonitor,
-            @Value("${disruptor.ring-buffer-size:1024}") int ringBufferSize) {
+            @Value("${disruptor.ring-buffer-size:65536}") int ringBufferSize) {
 
         this.throughputMonitor = throughputMonitor;
 
@@ -53,7 +54,7 @@ public class MarketDataDisruptor implements PublishService<Void, String> {
                 ringBufferSize,
                 Thread.ofPlatform().name("market-data-").factory(),
                 ProducerType.SINGLE,
-                new SleepingWaitStrategy());
+                new YieldingWaitStrategy());
 
         disruptor.handleEventsWith(eventHandler);
 
@@ -81,11 +82,11 @@ public class MarketDataDisruptor implements PublishService<Void, String> {
     }
 
     @Override
-    public Void publish(String channel, String rawJson) {
+    public Void publish(String channel, JsonNode payload) {
         long sequence = ringBuffer.next();
         try {
             MarketDataEvent event = ringBuffer.get(sequence);
-            event.setRawJson(rawJson);
+            event.setPayload(payload);
         } finally {
             ringBuffer.publish(sequence);
         }

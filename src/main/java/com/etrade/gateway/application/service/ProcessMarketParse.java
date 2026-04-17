@@ -3,23 +3,16 @@ package com.etrade.gateway.application.service;
 import com.etrade.gateway.domain.entity.QuoteEntity;
 import com.etrade.gateway.domain.service.ProcessMarketParseService;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
-public class ProcessMarketParse implements ProcessMarketParseService<String> {
-
-    private final ObjectMapper objectMapper;
+public class ProcessMarketParse implements ProcessMarketParseService<JsonNode> {
 
     @Override
-    public QuoteEntity process(String data) {
+    public QuoteEntity process(JsonNode root) {
         try {
-            JsonNode root = objectMapper.readTree(data);
-
             double bid = parseRate(root, "bid");
             double ask = parseRate(root, "ask");
 
@@ -46,7 +39,7 @@ public class ProcessMarketParse implements ProcessMarketParseService<String> {
     private double parseRate(JsonNode root, String field) {
         JsonNode node = root.path(field);
         if (node.isObject()) {
-            return Double.parseDouble(node.path("rate").asText());
+            return node.path("rate").asDouble();
         }
         return node.asDouble();
     }

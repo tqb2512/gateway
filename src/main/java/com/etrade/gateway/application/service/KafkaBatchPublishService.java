@@ -22,31 +22,26 @@ public class KafkaBatchPublishService {
     private final KafkaTemplate<String, byte[]> kafkaTemplate;
     private final ThroughputMonitor throughputMonitor;
 
-    /**
-     * Publish a batch of encoded records to the specified Kafka topic.
-     *
-     * @param topic the Kafka topic
-     * @param batch list of encoded byte arrays
-     */
     public void publishBatch(String topic, List<byte[]> batch) {
         if (batch == null || batch.isEmpty()) {
             return;
         }
 
-        long totalBytes = 0;
-
-        for (byte[] record : batch) {
-            kafkaTemplate.send(topic, record);
-            totalBytes += record.length;
+        final int size = batch.size();
+        for (int i = 0; i < size; i++) {
+            final byte[] record = batch.get(i);
+            kafkaTemplate.send(topic, record).whenComplete((result, ex) -> {
+                if (ex != null) {
+                    log.error("Kafka send failed on topic [{}]: {}", topic, ex.getMessage());
+                }
+            });
         }
 
-        // Flush all buffered records to the broker in one go
-        kafkaTemplate.flush();
-
-        throughputMonitor.add("kafka-records-out", batch.size());
+        throughputMonitor.add("kafka-records-out", size);
         throughputMonitor.increment("kafka-batches-out");
 
-        log.info("Published batch of {} records ({} bytes) to topic [{}]",
-                batch.size(), totalBytes, topic);
+        if (log.isDebugEnabled()) {
+            log.debug("Dispatched batch of {} records to topic [{}]", size, topic);
+        }
     }
 }

@@ -26,10 +26,16 @@ public class KafkaProducerConfig {
         configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         configProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
         configProps.put(ProducerConfig.ACKS_CONFIG, "all");
-        configProps.put(ProducerConfig.RETRIES_CONFIG, 3);
-        configProps.put(ProducerConfig.LINGER_MS_CONFIG, 10);
-        configProps.put(ProducerConfig.BATCH_SIZE_CONFIG, 32768);
-        configProps.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 33554432);
+        configProps.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        configProps.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
+        configProps.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
+
+        configProps.put(ProducerConfig.LINGER_MS_CONFIG, 5);
+        configProps.put(ProducerConfig.BATCH_SIZE_CONFIG, 262_144);      // 256 KB
+        configProps.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 134_217_728); // 128 MB
+
+        configProps.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "lz4");
+
         return new DefaultKafkaProducerFactory<>(configProps);
     }
 

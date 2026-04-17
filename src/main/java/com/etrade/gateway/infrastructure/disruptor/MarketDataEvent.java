@@ -1,6 +1,6 @@
 package com.etrade.gateway.infrastructure.disruptor;
 
-import com.etrade.gateway.domain.entity.QuoteEntity;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.lmax.disruptor.EventFactory;
 
 /**
@@ -9,41 +9,22 @@ import com.lmax.disruptor.EventFactory;
  */
 public class MarketDataEvent {
 
-    private String rawJson;
-    private QuoteEntity quote;
-    private byte[] encoded;
+    private JsonNode payload;
 
-    public String getRawJson() {
-        return rawJson;
+    public JsonNode getPayload() {
+        return payload;
     }
 
-    public void setRawJson(String rawJson) {
-        this.rawJson = rawJson;
-    }
-
-    public QuoteEntity getQuote() {
-        return quote;
-    }
-
-    public void setQuote(QuoteEntity quote) {
-        this.quote = quote;
-    }
-
-    public byte[] getEncoded() {
-        return encoded;
-    }
-
-    public void setEncoded(byte[] encoded) {
-        this.encoded = encoded;
+    public void setPayload(JsonNode payload) {
+        this.payload = payload;
     }
 
     /**
-     * Clear all fields for reuse in the ring buffer.
+     * Clear the payload reference so the Disruptor does not pin it until the
+     * slot is next overwritten.
      */
     public void clear() {
-        this.rawJson = null;
-        this.quote = null;
-        this.encoded = null;
+        this.payload = null;
     }
 
     public static class Factory implements EventFactory<MarketDataEvent> {

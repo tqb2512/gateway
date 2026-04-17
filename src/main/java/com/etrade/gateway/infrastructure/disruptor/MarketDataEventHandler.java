@@ -11,12 +11,12 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Disruptor event handler that processes each market data event:
- * 1. Parse raw JSON → QuoteEntity
+ * 1. Parse pre-decoded JsonNode → QuoteEntity
  * 2. Encode QuoteEntity → byte[]
- * 3. Add encoded bytes to the batch accumulator
+ * 3. Enqueue encoded bytes onto the batch flush queue
  *
- * Uses the {@code endOfBatch} flag to trigger a flush at the Disruptor batch
- * boundary.
+ * <p>This class runs on a single Disruptor worker thread, so the parser and
+ * encoder are invoked without synchronisation.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -30,21 +30,9 @@ public class MarketDataEventHandler implements EventHandler<MarketDataEvent> {
     @Override
     public void onEvent(MarketDataEvent event, long sequence, boolean endOfBatch) {
         try {
-            // Step 1: Parse
-            QuoteEntity quote = parser.process(event.getRawJson());
-            event.setQuote(quote);
-
-            log.debug("Parsed quote seq={}: {}/{} bid={} ask={}",
-                    sequence, quote.getBaseCurrency(), quote.getQuoteCurrency(),
-                    quote.getBid(), quote.getAsk());
-
-            // Step 2: Encode
+            QuoteEntity quote = parser.process(event.getPayload());
             byte[] encoded = encoder.process(quote);
-            event.setEncoded(encoded);
-
-            // Step 3: Add to batch
             batchAccumulator.add(encoded);
-
             throughputMonitor.increment("disruptor-processed");
         } catch (Exception e) {
             log.error("Failed to process market data event seq={}: {}", sequence, e.getMessage(), e);

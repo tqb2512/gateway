@@ -4,13 +4,15 @@ import com.etrade.gateway.application.service.KafkaBatchPublishService;
 import com.etrade.gateway.infrastructure.monitoring.ThroughputMonitor;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-import org.jctools.queues.MpmcArrayQueue;
+import org.jctools.queues.MessagePassingQueue;
+import org.jctools.queues.SpmcArrayQueue;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * Shared lock-free queue that decouples the Disruptor event-handler thread
@@ -29,7 +31,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class BatchFlushQueue {
 
-    private final MpmcArrayQueue<byte[]> sharedQueue;
+    private final SpmcArrayQueue<byte[]> sharedQueue;
     private final ExecutorService executor;
     private final BatchFlushWorker[] workers;
 
@@ -42,8 +44,16 @@ public class BatchFlushQueue {
             @Value("${kafka.batch.worker-count:2}") int workerCount,
             @Value("${kafka.batch.queue-capacity:1000000}") int queueCapacity) {
 
-        this.sharedQueue = new MpmcArrayQueue<>(queueCapacity);
-        this.executor = Executors.newFixedThreadPool(workerCount);
+        // SPMC: the sole producer is the Disruptor event-handler thread;
+        // {@code workerCount} consumers drain the queue in parallel. Using
+        // SPMC instead of MPMC removes the producer-side CAS contention that
+        // would otherwise cap Disruptor hand-off throughput.
+        this.sharedQueue = new SpmcArrayQueue<>(queueCapacity);
+        this.executor = Executors.newFixedThreadPool(workerCount, r -> {
+            Thread t = new Thread(r, "batch-flush-worker");
+            t.setDaemon(true);
+            return t;
+        });
         this.workers = new BatchFlushWorker[workerCount];
 
         for (int i = 0; i < workerCount; i++) {
@@ -58,13 +68,18 @@ public class BatchFlushQueue {
     }
 
     /**
-     * Enqueue a single encoded record. Spins (yielding) only if the queue is
-     * momentarily full — in practice this should never block under normal load
-     * given the large default queue capacity.
+     * Enqueue a single encoded record. Invoked exclusively from the Disruptor
+     * event-handler thread (single producer). Parks briefly if the queue is
+     * full rather than burning CPU.
      */
     public void offer(byte[] encoded) {
-        while (!sharedQueue.offer(encoded)) {
-            Thread.yield();
+        if (sharedQueue.offer(encoded)) {
+            return;
+        }
+        // Slow path: queue full — back off without hot-spinning.
+        final MessagePassingQueue<byte[]> q = sharedQueue;
+        while (!q.offer(encoded)) {
+            LockSupport.parkNanos(1_000L);
         }
     }
 
